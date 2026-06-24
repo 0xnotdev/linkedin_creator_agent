@@ -8,7 +8,8 @@
     "start": "node src/index.js",
     "post": "node src/index.js --now",
     "dry-run": "node src/index.js --dry-run",
-    "setup": "node scripts/setup-oauth.js"
+    "setup": "node scripts/setup-oauth.js",
+    "approve": "node scripts/approve.js"
   },
   "license": "MIT",
   "dependencies": {

@@ -6,10 +6,11 @@ import { scrape as scrapeArxiv } from './arxiv.js';
 import { scrape as scrapeHF } from './huggingface.js';
 import { scrape as scrapeRealtime } from './realtime.js';
 import { scrape as scrapeTwitter } from './twitter.js';
+import { scrape as scrapeYouTube } from './youtube.js';
 import { log } from '../logger.js';
 
 export async function scrapeAll() {
-  log.info('Starting parallel content scraping (8 sources)...');
+  log.info('Starting parallel content scraping (9 sources)...');
   
   // Run all scrapers concurrently
   const results = await Promise.allSettled([
@@ -20,12 +21,13 @@ export async function scrapeAll() {
     scrapeArxiv(),
     scrapeHF(),
     scrapeRealtime(),
-    scrapeTwitter()
+    scrapeTwitter(),
+    scrapeYouTube()
   ]);
 
   const sourceNames = [
     'GitHub', 'HackerNews', 'Reddit', 'RSS', 
-    'arXiv', 'HuggingFace', 'Realtime Web', 'X/Twitter'
+    'arXiv', 'HuggingFace', 'Realtime Web', 'X/Twitter', 'YouTube'
   ];
 
   let allContent = [];
