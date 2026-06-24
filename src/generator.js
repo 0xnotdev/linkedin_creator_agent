@@ -1,10 +1,20 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { getRecentHookTypes } from './store.js';
-import { log } from './logger.js';
+import { z } from 'zod';
+import { createLogger } from './logger.js';
 import dotenv from 'dotenv';
 dotenv.config();
 
+const log = createLogger('Generator');
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
+const PostSchema = z.object({
+  post: z.string().min(10).max(3000),
+  hookComment: z.string().min(1),
+  linkComment: z.string().min(1),
+  imageQuery: z.string().min(1),
+  hookType: z.string(),
+  contentType: z.enum(['repo_spotlight', 'hot_take', 'paper_breakdown', 'comparison', 'framework'])
+});
 
 const SYSTEM_PROMPT = `You are a senior AI engineer who posts raw, authentic takes on LinkedIn.
 You're not a news channel. You're not a corporate account. You're a builder 
@@ -68,7 +78,7 @@ If the source content or your generated post touches on ANY of the following top
 If safe, output the JSON. If unsafe, output ONLY the string: "UNSAFE_CONTENT_REJECTED"
 
 === OUTPUT FORMAT ===
-You must return a raw JSON object (without markdown code blocks like \`\`\`json) with the following structure:
+You must return a raw JSON object (without markdown code blocks like \`\`\`json) matching this exact structure:
 {
   "post": "the full LinkedIn post text",
   "hookComment": "a teaser comment ('Full source + my breakdown in the thread 👇')",
@@ -78,9 +88,7 @@ You must return a raw JSON object (without markdown code blocks like \`\`\`json)
   "contentType": "one of [repo_spotlight, hot_take, paper_breakdown, comparison, framework]"
 }`;
 
-export async function generatePost(contentItem) {
-  log.info(`Generating LinkedIn post for: ${contentItem.title}`);
-  
+async function callLLM(prompt, errorContext = '') {
   if (!process.env.GEMINI_API_KEY) {
     throw new Error('GEMINI_API_KEY is missing from .env');
   }
@@ -90,49 +98,77 @@ export async function generatePost(contentItem) {
     systemInstruction: SYSTEM_PROMPT
   });
 
-  const recentHooks = getRecentHookTypes(5);
-  const avoidHooksPrompt = recentHooks.length > 0 
-    ? `\nTry to avoid these recently used hook types if possible: ${recentHooks.join(', ')}`
+  const fullPrompt = errorContext ? `${prompt}\n\n${errorContext}` : prompt;
+
+  const result = await model.generateContent({
+    contents: [{ role: "user", parts: [{ text: fullPrompt }] }],
+    generationConfig: { temperature: 0.9 }
+  });
+  
+  let responseText = result.response.text();
+  responseText = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+  
+  if (responseText.includes('UNSAFE_CONTENT_REJECTED')) {
+    throw new Error('LLM rejected content due to Brand Safety rules.');
+  }
+
+  return JSON.parse(responseText);
+}
+
+export async function generatePost(contentItem, recentHookTypes = [], recentTopics = []) {
+  log.info(`Generating LinkedIn post for: ${contentItem.title}`);
+  
+  const avoidHooksPrompt = recentHookTypes.length > 0 
+    ? `\nTry to avoid these recently used hook types if possible: ${recentHookTypes.join(', ')}`
     : '';
 
-  const prompt = `Please generate a viral LinkedIn post based on the following content item:
+  const avoidTopicsPrompt = recentTopics.length > 0
+    ? `\nTry to avoid framing this exactly like these recent topics: ${recentTopics.slice(0,3).join(', ')}`
+    : '';
+
+  const basePrompt = `Please generate a viral LinkedIn post based on the following content item:
 
 Title: ${contentItem.title}
-Source: ${contentItem.source}
+Source: ${contentItem.sourceType}
 Description/Abstract: ${contentItem.description}
 URL: ${contentItem.url}
 ${avoidHooksPrompt}
+${avoidTopicsPrompt}
 
-Remember to return ONLY valid JSON matching the required format. Do not use markdown blocks around the JSON.`;
+Remember to return ONLY valid JSON matching the required format.`;
 
   try {
-    const result = await model.generateContent({
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0.9, // Higher temp for more creative hooks
-      }
-    });
+    const rawData = await callLLM(basePrompt);
+    let parsedData = PostSchema.parse(rawData);
     
-    let responseText = result.response.text();
-    // Clean up potential markdown JSON wrapping
-    responseText = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-    
-    if (responseText.includes('UNSAFE_CONTENT_REJECTED')) {
-      throw new Error('LLM rejected content due to Brand Safety rules.');
-    }
-    
-    const parsedData = JSON.parse(responseText);
-    
-    // Inject the actual URL into the linkComment if the LLM forgot
+    // Inject URL if forgotten
     if (!parsedData.linkComment.includes(contentItem.url)) {
       parsedData.linkComment = `${parsedData.linkComment} ${contentItem.url}`;
     }
     
-    log.success('Successfully generated post content');
+    log.success('Successfully generated and validated post content');
     return parsedData;
 
   } catch (error) {
-    log.error('Failed to generate post with Gemini', error.message);
+    // 1-Time Retry Loop for Zod/JSON errors
+    if (error instanceof z.ZodError || error instanceof SyntaxError) {
+      log.warn('LLM returned invalid JSON or failed schema validation. Retrying once...', { error: error.message });
+      
+      const errorInstruction = `Your previous output failed validation. You must return ONLY valid JSON matching the exact schema. Error: ${error.message}`;
+      
+      const rawDataRetry = await callLLM(basePrompt, errorInstruction);
+      let parsedDataRetry = PostSchema.parse(rawDataRetry);
+      
+      if (!parsedDataRetry.linkComment.includes(contentItem.url)) {
+        parsedDataRetry.linkComment = `${parsedDataRetry.linkComment} ${contentItem.url}`;
+      }
+
+      log.success('Successfully generated and validated post content on retry');
+      return parsedDataRetry;
+    }
+    
+    // Bubble up other errors (Brand Safety, Network)
+    log.error('Failed to generate post', { error });
     throw error;
   }
 }

@@ -44,14 +44,13 @@ export async function scrape() {
     trending.sort((a, b) => b.points - a.points);
 
     return trending.slice(0, 8).map(story => ({
-      source: 'hackernews',
       title: story.title,
       description: `HN discussion: ${story.num_comments || 0} comments, ${story.points} points.`,
       url: story.url || `https://news.ycombinator.com/item?id=${story.objectID}`,
-      score: story.points,
+      sourceType: 'hackernews',
+      engagementRaw: story.points,
       publishedAt: new Date(story.created_at).toISOString(),
-      raw: story,
-      contentType: 'hot_take'
+      imageUrl: null
     }));
 
   } catch (error) {

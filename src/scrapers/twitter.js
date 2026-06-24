@@ -84,14 +84,13 @@ export async function scrape() {
           if (!isAIRelated(title) && !isAIRelated(desc)) continue;
 
           results.push({
-            source: `x (${influencer.name})`,
             title: title.substring(0, 200),
             description: desc.replace(/<[^>]*>/g, '').substring(0, 500), // Strip HTML
             url: link.replace(/nitter\.[^/]+/, 'x.com'),
-            score: 0, // We can't get engagement from RSS, but the source authority matters
+            sourceType: 'twitter',
+            engagementRaw: 0,
             publishedAt: pubDate ? new Date(pubDate).toISOString() : new Date().toISOString(),
-            raw: { handle: influencer.handle, name: influencer.name },
-            contentType: 'hot_take'
+            imageUrl: null
           });
         }
       } catch (err) {
@@ -129,14 +128,13 @@ async function twitterWebFallback() {
     if (!response.data.items) return [];
     
     return response.data.items.map(item => ({
-      source: 'x (via search)',
       title: item.title,
       description: item.snippet || '',
       url: item.link,
-      score: 0,
+      sourceType: 'twitter',
+      engagementRaw: 0,
       publishedAt: new Date().toISOString(),
-      raw: item,
-      contentType: 'hot_take'
+      imageUrl: null
     }));
   } catch (error) {
     log.warn(`Twitter web fallback failed: ${error.message}`);

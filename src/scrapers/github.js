@@ -54,14 +54,13 @@ export async function scrape() {
     unique.sort((a, b) => b.stargazers_count - a.stargazers_count);
 
     return unique.slice(0, 5).map(repo => ({
-      source: 'github',
       title: repo.full_name,
       description: repo.description || 'No description provided.',
       url: repo.html_url,
-      score: repo.stargazers_count,
+      sourceType: 'github',
+      engagementRaw: repo.stargazers_count,
       publishedAt: repo.created_at,
-      raw: repo,
-      contentType: 'repo_spotlight'
+      imageUrl: null
     }));
 
   } catch (error) {

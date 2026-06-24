@@ -1,93 +1,118 @@
-import fs from 'fs';
+import Database from 'better-sqlite3';
 import path from 'path';
+import fs from 'fs';
 import crypto from 'crypto';
 import { log } from './logger.js';
 
 const dataDir = path.resolve('data');
-const dbFile = path.join(dataDir, 'posts.json');
+const dbFile = path.join(dataDir, 'posts.db');
 
 // Ensure data directory exists
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
 }
 
-// Initialize JSON db if it doesn't exist
-if (!fs.existsSync(dbFile)) {
-  fs.writeFileSync(dbFile, JSON.stringify({ posts: [] }, null, 2), 'utf8');
-}
+export function initStore() {
+  const db = new Database(dbFile);
 
-function loadDB() {
-  try {
-    const data = fs.readFileSync(dbFile, 'utf8');
-    return JSON.parse(data);
-  } catch (error) {
-    log.error('Failed to load JSON database', error.message);
-    return { posts: [] };
-  }
-}
+  // Enable WAL mode for better performance
+  db.pragma('journal_mode = WAL');
 
-function saveDB(db) {
-  try {
-    fs.writeFileSync(dbFile, JSON.stringify(db, null, 2), 'utf8');
-  } catch (error) {
-    log.error('Failed to save JSON database', error.message);
+  // Check schema version
+  const tableExists = db.prepare("SELECT count(*) as count FROM sqlite_master WHERE type='table' AND name='schema_version'").get();
+  
+  if (tableExists.count === 0) {
+    log.info('Initializing SQLite database schema...');
+    
+    // Create schema
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL);
+      INSERT INTO schema_version (version) VALUES (1);
+
+      CREATE TABLE IF NOT EXISTS posts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        topic_hash TEXT UNIQUE NOT NULL,
+        hook_type TEXT NOT NULL,
+        content_type TEXT NOT NULL,
+        source_url TEXT NOT NULL,
+        post_content TEXT NOT NULL,
+        image_path TEXT,
+        status TEXT NOT NULL DEFAULT 'draft', -- draft | approved | rejected | posted | failed
+        created_at TEXT DEFAULT (datetime('now')),
+        posted_at TEXT,
+        linkedin_post_urn TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_posts_topic_hash ON posts(topic_hash);
+      CREATE INDEX IF NOT EXISTS idx_posts_created_at ON posts(created_at);
+    `);
   }
+
+  return db;
 }
 
 function generateHash(text) {
+  if (!text) return '';
   return crypto.createHash('md5').update(text.toLowerCase().trim()).digest('hex');
 }
 
-export function isDuplicate(title) {
-  const db = loadDB();
+export function isDuplicate(db, title, windowDays = 90) {
   const hash = generateHash(title);
   
-  // Check if we've posted this topic in the last 90 days
-  const ninetyDaysAgo = new Date();
-  ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+  const stmt = db.prepare(`
+    SELECT count(*) as count 
+    FROM posts 
+    WHERE topic_hash = ? 
+    AND created_at > datetime('now', ?)
+  `);
   
-  return db.posts.some(post => {
-    const postDate = new Date(post.posted_at);
-    return post.topic_hash === hash && postDate > ninetyDaysAgo;
-  });
+  const result = stmt.get(hash, `-${windowDays} days`);
+  return result.count > 0;
 }
 
-export function recordPost(data) {
-  const db = loadDB();
+export function recordPost(db, { title, hookType, contentType, sourceUrl, post, imagePath, status = 'draft', urn = null }) {
+  const hash = generateHash(title);
   
-  db.posts.push({
-    id: Date.now().toString(),
-    topic_hash: generateHash(data.title || data.topic),
-    hook_type: data.hookType,
-    content_type: data.contentType,
-    source_url: data.sourceUrl,
-    posted_at: new Date().toISOString(),
-    linkedin_urn: data.urn
-  });
+  const stmt = db.prepare(`
+    INSERT INTO posts (topic_hash, hook_type, content_type, source_url, post_content, image_path, status, linkedin_post_urn)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
   
-  saveDB(db);
+  try {
+    stmt.run(hash, hookType, contentType, sourceUrl, post, imagePath, status, urn);
+  } catch (err) {
+    if (err.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+      log.warn(`Attempted to record duplicate post: ${hash}`);
+    } else {
+      throw err;
+    }
+  }
 }
 
-export function getRecentHookTypes(n = 10) {
-  const db = loadDB();
-  const sorted = [...db.posts].sort((a, b) => new Date(b.posted_at) - new Date(a.posted_at));
-  return sorted.slice(0, n).map(p => p.hook_type).filter(Boolean);
+export function getRecentHookTypes(db, n = 10) {
+  const stmt = db.prepare(`
+    SELECT hook_type 
+    FROM posts 
+    ORDER BY created_at DESC 
+    LIMIT ?
+  `);
+  return stmt.all(n).map(row => row.hook_type).filter(Boolean);
 }
 
-export function getRecentTopics(days = 30) {
-  const db = loadDB();
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - days);
-  
-  const recent = db.posts.filter(p => new Date(p.posted_at) > cutoff);
-  return recent.map(p => p.topic_hash);
+export function getRecentTopics(db, days = 30) {
+  const stmt = db.prepare(`
+    SELECT topic_hash 
+    FROM posts 
+    WHERE created_at > datetime('now', ?)
+  `);
+  return stmt.all(`-${days} days`).map(row => row.topic_hash).filter(Boolean);
 }
 
-export function getRecentContentTypes(days = 7) {
-  const db = loadDB();
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - days);
-  
-  const recent = db.posts.filter(p => new Date(p.posted_at) > cutoff);
-  return recent.map(p => p.content_type).filter(Boolean);
+export function updatePostStatus(db, id, status, linkedinPostUrn = null) {
+  const stmt = db.prepare(`
+    UPDATE posts 
+    SET status = ?, linkedin_post_urn = ?, posted_at = CASE WHEN ? = 'posted' THEN datetime('now') ELSE posted_at END
+    WHERE id = ?
+  `);
+  stmt.run(status, linkedinPostUrn, status, id);
 }

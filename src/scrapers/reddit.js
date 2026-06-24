@@ -26,21 +26,20 @@ export async function scrape() {
       for (const post of hotPosts) {
         if (post.score > 50 && !post.stickied) {
           results.push({
-            source: `reddit (r/${sub})`,
             title: post.title,
-            description: post.selftext ? post.selftext.substring(0, 300) + '...' : '',
+            description: post.selftext ? post.selftext.substring(0, 500) : `Reddit discussion with ${post.num_comments} comments.`,
             url: `https://reddit.com${post.permalink}`,
-            score: post.score,
+            sourceType: 'reddit',
+            engagementRaw: post.score,
             publishedAt: new Date(post.created_utc * 1000).toISOString(),
-            raw: post,
-            contentType: 'hot_take'
+            imageUrl: null
           });
         }
       }
     }
 
     // Sort by score descending and take top 5
-    return results.sort((a, b) => b.score - a.score).slice(0, 5);
+    return results.sort((a, b) => b.engagementRaw - a.engagementRaw).slice(0, 5);
 
   } catch (error) {
     log.error('Reddit scraper failed', error.message);

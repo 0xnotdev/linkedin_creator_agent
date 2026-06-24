@@ -1,9 +1,8 @@
 import cron from 'node-cron';
 import { runPipeline } from './pipeline.js';
-import { log } from './logger.js';
-import dotenv from 'dotenv';
-dotenv.config();
+import { createLogger } from './logger.js';
 
+const log = createLogger('Scheduler');
 const args = process.argv.slice(2);
 
 // Check for CLI flags
@@ -22,23 +21,26 @@ else if (isDryRun) {
   runPipeline({ dryRun: true });
 } 
 else {
-  // Start Scheduler
-  log.info('Starting LinkedIn Post Maker Scheduler...');
-  log.info('Using optimal 2026 scheduling (Afternoon peak)');
+  // Start Scheduler (3x a day: 7am, 1:30pm, 10pm IST)
+  log.info('Starting node-cron scheduler in Draft+Review mode...');
   
-  const tz = process.env.TZ || 'Asia/Kolkata';
-
-  // Tuesday-Thursday: 4:00 PM
-  cron.schedule('0 16 * * 2-4', () => {
-    log.info('Triggering scheduled post (Tue-Thu 4PM)');
+  // ~7:00 AM IST
+  cron.schedule('0 7 * * *', () => {
+    log.info('Triggering morning pipeline run');
     runPipeline();
-  }, { timezone: tz });
+  }, { timezone: 'Asia/Kolkata' });
 
-  // Monday & Friday: 12:30 PM
-  cron.schedule('30 12 * * 1,5', () => {
-    log.info('Triggering scheduled post (Mon/Fri 12:30PM)');
+  // ~1:30 PM IST
+  cron.schedule('30 13 * * *', () => {
+    log.info('Triggering midday pipeline run');
     runPipeline();
-  }, { timezone: tz });
+  }, { timezone: 'Asia/Kolkata' });
 
-  log.success(`Scheduler active. Timezone: ${tz}`);
+  // ~10:00 PM IST
+  cron.schedule('0 22 * * *', () => {
+    log.info('Triggering night pipeline run');
+    runPipeline();
+  }, { timezone: 'Asia/Kolkata' });
+  
+  log.success('Scheduler running. Waiting for next cron trigger...');
 }

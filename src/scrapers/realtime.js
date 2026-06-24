@@ -59,15 +59,13 @@ async function searchGoogleCSE() {
       if (response.data.items) {
         for (const item of response.data.items) {
           results.push({
-            source: 'google_realtime',
             title: item.title,
             description: item.snippet || '',
             url: item.link,
-            imageUrl: item.pagemap?.cse_image?.[0]?.src || null,
-            score: 0, // Google doesn't give engagement scores, but recency is king here
+            sourceType: 'realtime',
+            engagementRaw: 0,
             publishedAt: new Date().toISOString(), // These are from today by dateRestrict=d1
-            raw: item,
-            contentType: 'hot_take'
+            imageUrl: item.pagemap?.cse_image?.[0]?.src || null
           });
         }
       }
@@ -96,15 +94,13 @@ async function searchCurrentsAPI() {
     }
 
     return response.data.news.slice(0, 5).map(article => ({
-      source: 'currents_api',
       title: article.title,
       description: article.description || '',
       url: article.url,
-      imageUrl: article.image !== 'None' ? article.image : null,
-      score: 0,
+      sourceType: 'realtime',
+      engagementRaw: 0,
       publishedAt: article.published || new Date().toISOString(),
-      raw: article,
-      contentType: 'hot_take'
+      imageUrl: article.image !== 'None' ? article.image : null
     }));
   } catch (error) {
     log.warn(`Currents API search failed: ${error.message}`);
@@ -125,15 +121,13 @@ async function searchDevTo() {
     }
 
     return response.data.map(article => ({
-      source: 'devto',
       title: article.title,
       description: article.description || '',
       url: article.url,
-      imageUrl: article.social_image || article.cover_image || null,
-      score: article.public_reactions_count || 0,
+      sourceType: 'realtime',
+      engagementRaw: article.public_reactions_count || 0,
       publishedAt: article.published_at,
-      raw: article,
-      contentType: 'hot_take'
+      imageUrl: article.social_image || article.cover_image || null
     }));
   } catch (error) {
     log.warn(`Dev.to search failed: ${error.message}`);

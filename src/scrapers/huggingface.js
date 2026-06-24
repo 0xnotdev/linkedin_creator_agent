@@ -11,20 +11,15 @@ export async function scrape() {
       return [];
     }
 
-    return response.data.map(item => {
-      const paper = item.paper;
-      return {
-        source: 'huggingface',
-        title: paper.title,
-        description: paper.summary.substring(0, 500) + '...',
-        url: `https://huggingface.co/papers/${paper.id}`,
-        score: paper.upvotes,
-        publishedAt: paper.publishedAt,
-        authors: paper.authors.map(a => a.name).join(', '),
-        raw: paper,
-        contentType: 'paper_breakdown'
-      };
-    });
+    return response.data.map(paper => ({
+      title: paper.paper?.title || 'Untitled',
+      description: paper.paper?.summary?.substring(0, 500) || 'No abstract available.',
+      url: `https://huggingface.co/papers/${paper.paper?.id}`,
+      sourceType: 'huggingface',
+      engagementRaw: paper.paper?.upvotes || 0,
+      publishedAt: paper.paper?.publishedAt || new Date().toISOString(),
+      imageUrl: null
+    }));
 
   } catch (error) {
     log.error('Hugging Face scraper failed', error.message);

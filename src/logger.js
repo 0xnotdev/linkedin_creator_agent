@@ -2,13 +2,12 @@ import chalk from 'chalk';
 import fs from 'fs';
 import path from 'path';
 
-// Ensure data and logs directories exist
 const dataDir = path.resolve('data');
+const logFile = path.join(dataDir, 'app.log');
+
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
 }
-
-const logFile = path.join(dataDir, 'app.log');
 
 function redact(text) {
   if (typeof text !== 'string') return text;
@@ -18,35 +17,52 @@ function redact(text) {
     .replace(/token\s+[A-Za-z0-9-_.=]+/gi, 'token [REDACTED_TOKEN]');
 }
 
-function writeToFile(level, message) {
-  const timestamp = new Date().toISOString();
-  const safeMessage = redact(message);
-  const logLine = `[${timestamp}] [${level}] ${safeMessage}\n`;
-  fs.appendFileSync(logFile, logLine, 'utf8');
+function writeToFile(level, name, message, meta) {
+  try {
+    const timestamp = new Date().toISOString();
+    const safeMessage = redact(message);
+    let logLine = `[${timestamp}] [${level}] [${name}] ${safeMessage}`;
+    if (meta && Object.keys(meta).length > 0) {
+      logLine += ` ${JSON.stringify(meta)}`;
+    }
+    logLine += '\n';
+    fs.appendFileSync(logFile, logLine, 'utf8');
+  } catch (err) {
+    // Fail silently so logging doesn't crash the app
+  }
 }
 
-export const log = {
-  info: (msg) => {
-    console.log(chalk.blue('ℹ INFO: ') + msg);
-    writeToFile('INFO', msg);
-  },
-  success: (msg) => {
-    console.log(chalk.green('✅ SUCCESS: ') + msg);
-    writeToFile('SUCCESS', msg);
-  },
-  warn: (msg) => {
-    console.log(chalk.yellow('⚠ WARN: ') + msg);
-    writeToFile('WARN', msg);
-  },
-  error: (msg, err = '') => {
-    const errorStr = err ? `\n${err.stack || err}` : '';
-    console.log(chalk.red('❌ ERROR: ') + msg + chalk.red(errorStr));
-    writeToFile('ERROR', `${msg}${errorStr}`);
-  },
-  debug: (msg) => {
-    if (process.env.DEBUG === 'true') {
-      console.log(chalk.gray('🐛 DEBUG: ') + msg);
-      writeToFile('DEBUG', msg);
+export function createLogger(name = 'System') {
+  return {
+    info: (message, meta = {}) => {
+      console.log(chalk.blue('ℹ INFO: ') + redact(message), meta && Object.keys(meta).length > 0 ? meta : '');
+      writeToFile('INFO', name, message, meta);
+    },
+    success: (message, meta = {}) => {
+      console.log(chalk.green('✅ SUCCESS: ') + redact(message), meta && Object.keys(meta).length > 0 ? meta : '');
+      writeToFile('SUCCESS', name, message, meta);
+    },
+    warn: (message, meta = {}) => {
+      console.log(chalk.yellow('⚠ WARN: ') + redact(message), meta && Object.keys(meta).length > 0 ? meta : '');
+      writeToFile('WARN', name, message, meta);
+    },
+    error: (message, meta = {}) => {
+      console.log(chalk.red('❌ ERROR: ') + redact(message));
+      if (meta && meta.error instanceof Error) {
+        console.log(chalk.red(`  ${meta.error.message}`));
+        console.log(chalk.red(`  ${meta.error.stack}`));
+      } else if (meta && Object.keys(meta).length > 0) {
+        console.log(chalk.red(`  ${JSON.stringify(meta)}`));
+      }
+      
+      const errorMeta = meta && meta.error instanceof Error 
+        ? { message: meta.error.message, stack: meta.error.stack, ...meta, error: undefined } 
+        : meta;
+        
+      writeToFile('ERROR', name, message, errorMeta);
     }
-  }
-};
+  };
+}
+
+// Global default logger for legacy compatibility during refactor
+export const log = createLogger('Global');

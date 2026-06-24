@@ -24,37 +24,18 @@ export async function scrape() {
     
     const entries = Array.isArray(parsed.feed.entry) ? parsed.feed.entry : [parsed.feed.entry];
 
-    return entries.map(entry => {
-      let authors = '';
-      if (Array.isArray(entry.author)) {
-        authors = entry.author.map(a => a.name).join(', ');
-      } else if (entry.author) {
-        authors = entry.author.name;
-      }
-
-      // Extract PDF link
-      let pdfLink = entry.id;
-      if (Array.isArray(entry.link)) {
-        const pdf = entry.link.find(l => l['@_title'] === 'pdf');
-        if (pdf) pdfLink = pdf['@_href'];
-      }
-
-      return {
-        source: 'arxiv',
-        title: entry.title.replace(/\n/g, ' ').trim(),
-        description: entry.summary.replace(/\n/g, ' ').trim().substring(0, 500) + '...',
-        url: entry.id, // Abstract page
-        pdfUrl: pdfLink,
-        score: 0, // arXiv doesn't have a score system
-        publishedAt: entry.published,
-        authors: authors,
-        raw: entry,
-        contentType: 'paper_breakdown'
-      };
-    });
+    return entries.slice(0, 5).map(item => ({
+      title: item.title?.trim() || 'Untitled Paper',
+      description: item.summary?.trim().substring(0, 500) || '',
+      url: item.id?.trim() || '',
+      sourceType: 'arxiv',
+      engagementRaw: 0,
+      publishedAt: item.published ? new Date(item.published).toISOString() : new Date().toISOString(),
+      imageUrl: null
+    }));
 
   } catch (error) {
-    log.error('arXiv scraper failed', error.message);
+    log.error('arXiv scraper failed', { error: error.message });
     return [];
   }
 }

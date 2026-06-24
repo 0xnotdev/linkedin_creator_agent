@@ -57,15 +57,13 @@ export async function scrape() {
           }
 
           results.push({
-            source: feed.name,
             title: item.title,
-            description: item.contentSnippet || item.content,
+            description: item.contentSnippet || item.content || '',
             url: item.link,
-            imageUrl: extractImage(item),
-            score: 0, // RSS doesn't have engagement scores natively
+            sourceType: 'rss',
+            engagementRaw: 0,
             publishedAt: pubDate.toISOString(),
-            raw: item,
-            contentType: 'hot_take'
+            imageUrl: extractImage(item)
           });
         }
       } catch (err) {

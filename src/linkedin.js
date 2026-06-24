@@ -1,9 +1,11 @@
 import axios from 'axios';
 import fs from 'fs';
-import { log } from './logger.js';
+import { createLogger } from './logger.js';
 import { decryptToken } from './crypto.js';
 import dotenv from 'dotenv';
 dotenv.config();
+
+const log = createLogger('LinkedIn');
 
 const API_VERSION = '202401';
 const BASE_HEADERS = {
@@ -37,7 +39,7 @@ export async function verifyToken() {
     }
     return urn;
   } catch (error) {
-    log.error('Failed to verify LinkedIn token. It may be expired.', error.response?.data || error.message);
+    log.error('Failed to verify LinkedIn token. It may be expired.', { error: error.response?.data || error.message });
     throw error;
   }
 }
@@ -105,7 +107,7 @@ async function createPost(text, imageUrn, personUrn) {
     log.success(`Post published! URN: ${postUrn}`);
     return postUrn;
   } catch (error) {
-    log.error('Failed to create post', error.response?.data || error.message);
+    log.error('Failed to create post', { error: error.response?.data || error.message });
     throw error;
   }
 }
@@ -127,9 +129,18 @@ async function addComment(postUrn, text, personUrn) {
     // Return the new comment URN so we can reply to it (for the 2-comment link workaround)
     return response.headers['x-restli-id'];
   } catch (error) {
-    log.error('Failed to add comment', error.response?.data || error.message);
+    log.error('Failed to add comment', { error: error.response?.data || error.message });
     return null;
   }
+}
+
+export async function saveDraft(text, imagePath, meta) {
+  log.info('Saving post as draft for manual review...', meta);
+  // The actual DB writing happens in pipeline.js via store.js
+  // This function is mostly a placeholder to mirror the publish function structure
+  // but it verifies the token so you don't get a nasty surprise later.
+  await verifyToken();
+  return { status: 'draft' };
 }
 
 export async function publishPipeline(postData, imagePath) {
