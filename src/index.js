@@ -21,24 +21,18 @@ else if (isDryRun) {
   runPipeline({ dryRun: true });
 } 
 else {
-  // Start Scheduler (3x a day: 7am, 1:30pm, 10pm IST)
-  log.info('Starting node-cron scheduler in Draft+Review mode...');
+  // Start Scheduler (1x a day, 5 days a week IST)
+  log.info('Starting node-cron scheduler in Draft+Review mode (1x/day schedule)...');
   
-  // ~7:00 AM IST
-  cron.schedule('0 7 * * *', () => {
-    log.info('Triggering morning pipeline run');
+  // Tuesday-Thursday: 4:00 PM IST (the 2026 peak engagement slot)
+  cron.schedule('30 10 * * 2-4', () => {
+    log.info('Triggering afternoon pipeline run');
     runPipeline();
   }, { timezone: 'Asia/Kolkata' });
 
-  // ~1:30 PM IST
-  cron.schedule('30 13 * * *', () => {
+  // Monday & Friday: 12:30 PM IST (secondary peak)
+  cron.schedule('0 7 * * 1,5', () => {
     log.info('Triggering midday pipeline run');
-    runPipeline();
-  }, { timezone: 'Asia/Kolkata' });
-
-  // ~10:00 PM IST
-  cron.schedule('0 22 * * *', () => {
-    log.info('Triggering night pipeline run');
     runPipeline();
   }, { timezone: 'Asia/Kolkata' });
   
